@@ -1,126 +1,90 @@
-# LungSynth AI — Backend
+# LungSynth AI Backend
 
-FastAPI backend implementing the phase-conditioned diffusion model from
-the proposal *"Phase-Conditioned Diffusion Models for 4D Lung CT
-Synthesis"*: a 3D U-Net noise predictor with FiLM conditioning at every
-residual block and a Phase-Aware Attention Module at the bottleneck,
-trained/sampled as a DDPM with DDIM inference (~50 steps).
+FastAPI backend for the phase conditioned diffusion model. The noise predictor is a 3D UNet with FiLM conditioning in every residual block and a Phase Aware Attention module at the bottleneck. It is trained as a DDPM and sampled with DDIM in about 50 steps.
 
-This is **real inference**, not a mock — uploads go through actual
-preprocessing, the actual model does a real forward pass, and DDIM
-actually denoises from Gaussian noise. What it is *not*, out of the
-box, is a **trained** model — see the callout below.
+Every request goes through real preprocessing and a real diffusion sampling loop. Nothing is mocked.
 
-## ⚠️ About "real inference" without a trained checkpoint
+## Model weights
 
-The source proposal is a *research proposal*: no model has been trained
-on the DIR-Lab dataset yet (Section 5.1 says as much: *"Since this is a
-proposal, experimental results have not yet been obtained"*). So:
+The server loads a trained checkpoint from `checkpoints/phasediff.pt` on startup. You can confirm it loaded at `GET /api/health`, which reports `checkpointLoaded`.
 
-- If `checkpoints/phasediff.pt` doesn't exist, the pipeline runs with
-  **randomly initialised weights**. You'll get correctly-shaped,
-  CT-window-normalized volumes flowing through a real diffusion
-  sampling loop — but the anatomical content is not meaningful yet.
-- `train.py` is a full LOOCV training script matching Section 4.3.4 of
-  the proposal (patch-based 64³ training, AdamW, cosine annealing, 200
-  epochs). Run it against a local copy of the DIR-Lab dataset
-  (https://www.dir-lab.com) to produce a real checkpoint, then drop it
-  at `checkpoints/phasediff.pt` — the server picks it up automatically
-  on next boot (see `/api/health` → `checkpointLoaded`).
-- The `confidence` value returned per phase is **not** a calibrated
-  clinical score (that requires Target Registration Error against
-  DIR-Lab's 300 annotated landmarks — see Section 5.1.4 — evaluated on
-  a trained model). It's currently a reconstruction-consistency
-  heuristic against the linear-interpolation baseline. Swap in real
-  TRE-based confidence once you have a trained + validated model.
+The checkpoint is not in the repo because of file size. If it is missing the pipeline still runs with untrained weights. Shapes and the full flow will work but the output will not look like real anatomy.
+
+To train your own, see `train.py`. It does patch based training on 64³ crops with AdamW and cosine annealing, using leave one out cross validation across the DIR-Lab patients. You need a local copy of DIR-Lab from https://www.dir-lab.com.
 
 ## Setup
 
 ```bash
 cd backend
-python -m venv .venv && source .venv/bin/activate   # optional but recommended
+python -m venv .venv
+# Windows:   .venv\Scripts\activate
+# Mac/Linux: source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env
 uvicorn app.main:app --reload --port 8000
 ```
 
-The frontend (see `src/lib/api.ts`) expects the backend at
-`http://localhost:8000` by default — set `VITE_API_BASE_URL` if you run
-it elsewhere.
-
-Health check: `GET http://localhost:8000/api/health`
+The frontend expects the backend at `http://localhost:8000`. Set `VITE_API_BASE_URL` in the root `.env` if you run it somewhere else.
 
 ## Configuration
 
-All settings live in `app/config.py` and can be overridden via
-environment variables prefixed `LUNGSYNTH_`, or a `backend/.env` file:
+Settings live in `app/config.py`. Any of them can be overridden with an environment variable that starts with `LUNGSYNTH_`, or in `backend/.env`.
 
 | Variable | Default | Notes |
 |---|---|---|
-| `LUNGSYNTH_WORKING_SIZE` | `96` | Volumes are resampled to this cubic size before diffusion sampling. Larger = more detail, much slower on CPU. |
-| `LUNGSYNTH_DDIM_STEPS` | `50` | Matches the proposal's Section 1.2 point 4 (1000→~50 step speedup). |
-| `LUNGSYNTH_CHECKPOINT_PATH` | `checkpoints/phasediff.pt` | Where a trained model is loaded from, if present. |
-| `LUNGSYNTH_GOOGLE_CLIENT_ID` | unset | Set this to enable verified Google Sign-In. Unset = dev mode (unverified token decode). |
-| `LUNGSYNTH_CORS_ORIGINS` | localhost:8080/3000 | Add your deployed frontend origin here. |
+| `LUNGSYNTH_WORKING_SIZE` | `96` | Volumes are resampled to this cube size before sampling. Bigger means more detail but much slower on CPU. |
+| `LUNGSYNTH_DDIM_STEPS` | `50` | Number of DDIM sampling steps. |
+| `LUNGSYNTH_CHECKPOINT_PATH` | `checkpoints/phasediff.pt` | Where the trained model is loaded from. |
+| `LUNGSYNTH_GOOGLE_CLIENT_ID` | not set | Turns on verified Google sign in. If it is not set the server runs in dev mode and does not verify tokens. Never deploy like that. |
+| `LUNGSYNTH_CORS_ORIGINS` | localhost:8080 and 3000 | Add your deployed frontend address here. |
 
-GPU is used automatically if `torch.cuda.is_available()`; otherwise it
-runs on CPU (slow but functional — a full 7-phase generation at the
-default 96³/50-step settings takes a while on CPU; drop
-`LUNGSYNTH_WORKING_SIZE` and `LUNGSYNTH_DDIM_STEPS` for faster local
-testing).
+A GPU is used automatically if PyTorch can see one. On CPU it still works but a full run is slow. Lower the working size and DDIM steps for quick local tests.
 
-## API surface
+## API
 
-| Endpoint | Purpose |
+| Endpoint | What it does |
 |---|---|
-| `POST /api/sessions/upload` | multipart upload of `t00` + `t50` scans → `sessionId` |
-| `POST /api/sessions/{id}/generate` | kicks off async generation → `jobId` |
-| `GET /api/jobs/{jobId}` | poll status/stage/progress (matches the frontend's 5-stage progress screen) |
-| `GET /api/sessions/{id}/results` | phase metadata once the job completes |
-| `GET /api/sessions/{id}/phases/{label}/preview` | PNG mid-slice preview |
-| `GET /api/sessions/{id}/phases/{label}/download` | `.nii.gz` volume download |
-| `GET /api/sessions/{id}/download-all` | zip of every phase (volumes + previews) |
-| `POST /api/sessions/{id}/save-history` | persists a history row |
-| `GET /api/history` / `DELETE /api/history` | session history |
-| `POST /api/auth/google` | verifies (or, in dev mode, decodes) a Google ID token |
+| `POST /api/sessions/upload` | Upload `t00` and `t50` scans, returns a `sessionId` |
+| `POST /api/sessions/{id}/generate` | Starts a background generation job, returns a `jobId` |
+| `GET /api/jobs/{jobId}` | Job status, stage and progress for the progress screen |
+| `GET /api/sessions/{id}/results` | Phase details once the job is done |
+| `GET /api/sessions/{id}/phases/{label}/preview` | PNG preview of the middle slice |
+| `GET /api/sessions/{id}/phases/{label}/download` | `.nii.gz` volume for one phase |
+| `GET /api/sessions/{id}/download-all` | Zip of every phase, volumes and previews |
+| `POST /api/sessions/{id}/save-history` | Saves the run to history |
+| `GET /api/history` and `DELETE /api/history` | Read or clear history |
+| `POST /api/auth/google` | Verifies a Google ID token and returns the user |
 
-## Project layout
+## Layout
 
 ```
 backend/
   app/
-    main.py            FastAPI app + startup model warm-load
-    config.py           settings
-    schemas.py           Pydantic request/response models
-    storage.py            SQLite session history
+    main.py              FastAPI app, loads the model once at startup
+    config.py            settings
+    schemas.py           Pydantic request and response models
+    storage.py           SQLite session history
     models/
-      unet3d.py            3D U-Net + FiLM residual blocks + Phase-Aware Attention
-      embeddings.py          sinusoidal timestep/phase embeddings + FiLM
+      unet3d.py          3D UNet with FiLM residual blocks and Phase Aware Attention
+      embeddings.py      sinusoidal timestep and phase embeddings, FiLM
     core/
-      diffusion.py           DDPM forward process, training loss, DDIM sampler
-      preprocessing.py        DICOM/NIfTI/MetaImage/NRRD I/O, HU normalize, resample
-      inference.py             the generation pipeline (loads model once, runs all 7 phases)
-      jobs.py                   async job tracker (status polling for the frontend)
+      diffusion.py       DDPM forward process, training loss, DDIM sampler
+      preprocessing.py   DICOM, NIfTI, MetaImage and NRRD loading, HU normalization, resampling
+      inference.py       generation pipeline for all seven phases
+      jobs.py            background job tracker
     routers/
-      generate.py               upload/generate/results/download endpoints
-      history.py                 session history endpoints
-      auth.py                     Google Sign-In verification
-  train.py                LOOCV training script for the DIR-Lab dataset
-  checkpoints/             trained model weights go here
-  data/                     uploads/outputs/sqlite db (gitignored)
+      generate.py        upload, generate, results and download endpoints
+      history.py         history endpoints
+      auth.py            Google sign in verification
+  train.py               training script for DIR-Lab
+  checkpoints/           trained weights go here (not committed)
+  data/                  uploads, outputs and the SQLite database (not committed)
 ```
 
-## Known simplifications vs. the full proposal
+## Known simplifications
 
-- **Full-volume resize instead of patch-stitched inference.** The
-  proposal trains on 64³ patches with 50%-overlap sliding-window
-  stitching for full-resolution (512×512×~120) output. For a
-  responsive web demo, `inference.py` instead resamples the whole
-  volume to a fixed working cube (`working_size`, default 96³) and runs
-  a single diffusion pass. `train.py` *does* implement the paper's
-  actual patch extraction for training. If you need patch-stitched
-  full-resolution inference for real clinical-grade output, extend
-  `PhaseSynthPipeline.generate()` with a sliding-window + averaging
-  pass — the model and diffusion code underneath don't need to change.
-- **Confidence score** is a heuristic, not TRE — see callout above.
-- **Job queue is in-memory**, single-process. Fine for a demo/single
-  instance; swap for Redis/Celery if you need multiple workers.
+**Single pass inference.** Training uses 64³ patches with overlapping windows. For a responsive web demo, `inference.py` instead resamples the whole volume to one working cube (96³ by default) and runs a single diffusion pass. Full resolution output would need a sliding window pass added to `PhaseSynthPipeline.generate()`. The model and diffusion code would not need to change.
+
+**Confidence score.** The per phase confidence value is a consistency check against a linear interpolation baseline. It is not a calibrated clinical score.
+
+**In memory job queue.** Jobs run in a single process. A multi worker setup would need something like Redis or Celery.

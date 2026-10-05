@@ -51,7 +51,7 @@ function SettingsPage() {
   const [name, setName] = useState("");
 
   useEffect(() => {
-    const u = getUser() ?? { name: "Dr. Amara Reyes", email: "a.reyes@radiology.hospital.org", initials: "AR" };
+    const u = getUser() ?? { name: "Guest", email: "Not signed in", initials: "G" };
     setLocalUser(u);
     setName(u.name);
     setLocalPrefs(getPrefs());

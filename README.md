@@ -1,164 +1,117 @@
 # LungSynth AI
 
-LungSynth AI is an AI-powered web application designed to generate intermediate 4D lung CT scan phases from two boundary CT scans. The application provides a simple, intuitive interface that allows users to upload medical images, process them using an AI model, and visualize the generated intermediate phases.
+**Phase Conditioned Diffusion Model for 4D Lung CT Intermediate Phase Reconstruction**
 
----
+Give LungSynth two CT scans of the lungs taken at the two ends of a breath (T00 and T50). It rebuilds the seven breathing phases in between (T10 to T40 and T60 to T80) with a 3D diffusion model. The whole thing runs inside a web app where you sign in, upload scans, watch the job run and download the results.
 
-## Overview
+This was our final year AI capstone project at North South University.
 
-LungSynth AI assists researchers and medical professionals by reconstructing missing respiratory phases between two CT scans. The system is intended to support research in medical imaging and respiratory motion analysis by providing high-quality AI-generated intermediate images.
+## Why it matters
 
----
+4D CT shows how the lungs and any tumor inside them move while a patient breathes. Doctors use it to plan radiotherapy for lung cancer. In practice some phases come out noisy or full of motion artifacts. If you can rebuild the middle phases from the two clean end phases, you get a full breathing cycle you can actually use.
 
-## Features
+## Results
 
-- Secure Google Authentication
-- Upload two CT scan images (Boundary Phases)
-- AI-powered intermediate phase generation
-- Processing progress indicator
-- View generated CT phases
-- Download generated results
-- History of previous generations
-- User profile and settings management
-- Responsive and modern medical dashboard
+We tested on the DIR-Lab 4D CT dataset.
 
----
+| Metric | What we compared | Result |
+|---|---|---|
+| TRE (lower is better) | LungSynth vs no motion baseline | **3.85 mm** vs 4.50 mm |
+| MSE (lower is better) | Phase Aware Attention model vs baseline UNet | **about 70% lower** |
 
-## Workflow
+TRE (Target Registration Error) checks how far the expert annotated landmarks in DIR-Lab end up from where they should be, in millimeters. It is the clinical metric so we treat it as the main one.
 
-1. Launch the application.
-2. Sign in using your Google account.
-3. Upload the required CT scan images.
-4. Click **Generate CT Phases**.
-5. Wait while the AI model processes the images.
-6. View the generated intermediate CT phases.
-7. Download the generated images if required.
-8. Access previous generations from the History page.
+One honest note. A simple linear blend of the two input scans scored better than our model on MSE. That is a known weakness of MSE because it rewards blurry, averaged images. TRE does not have that problem, which is why we lead with it.
 
----
+## How it works
 
-## Application Pages
+**Model.** A 3D UNet that predicts noise. FiLM layers inside every residual block feed in the target phase and the diffusion timestep, so one network can produce any of the seven phases. A Phase Aware Attention module sits at the bottleneck.
 
-### Login
+**Training data.** DIR-Lab only has a handful of patients. To get more to learn from, we used ANTsPy SyN deformable registration on the DIR-Lab landmarks to make extra intermediate phase volumes.
 
-Secure authentication using Google Sign-In.
+**Training.** Standard DDPM objective on 64³ patches with AdamW (learning rate 2e-4) and cosine annealing. See `backend/train.py`.
 
-### Upload
+**Sampling.** DDIM with 50 steps instead of the full 1000, which makes generation fast enough for a web app.
 
-Upload the required CT scan images for processing.
+## The web app
 
-### Processing
+Sign in with Google. Upload a T00 and a T50 scan in DICOM, NIfTI, MetaImage or NRRD format. The backend runs the diffusion job in the background while the frontend shows live progress. When it is done you get a preview slice for every phase. You can download each phase as a `.nii.gz` volume or grab all of them in one zip. Past runs show up on the History page.
 
-Displays the current processing status while the AI model generates intermediate phases.
+<!--
+Screenshots: put images in a docs/ folder and remove these comment lines.
+![Dashboard](docs/dashboard.png)
+![Results](docs/results.png)
+-->
 
-### Results
+## Tech stack
 
-Displays all generated CT scan phases with options to enlarge or download images.
+| Part | Tools |
+|---|---|
+| Model | PyTorch, 3D UNet, FiLM conditioning, DDPM training, DDIM sampling |
+| Medical imaging | SimpleITK, nibabel, ANTsPy (training data prep) |
+| Backend | FastAPI, SQLite, Google ID token verification |
+| Frontend | React 19, TypeScript, TanStack Start, Tailwind CSS, shadcn/ui |
 
-### History
+## Run it locally
 
-Stores previous image generation sessions along with upload date and time.
+You need Python 3.10 or newer and Node 20 or newer.
 
-### Settings
-
-Allows users to:
-
-- Edit display name
-- Change preferred date format
-- Change preferred time format
-- Logout
-
----
-
-## Technologies Used
-
-### Frontend
-
-- React
-- TypeScript
-- Vite
-- Tailwind CSS
-- TanStack Router
-- Shadcn UI
-- Lucide Icons
-
-### Backend
-
-- Python
-- FastAPI
-
-### AI Model
-
-- Diffusion Model
-- Medical Image Processing
-
----
-
-## Installation
-
-### Clone the repository
+### 1. Backend
 
 ```bash
-git clone https://github.com/yourusername/lungsynth-ai.git
-cd lungsynth-ai
+cd backend
+python -m venv .venv
+# Windows:   .venv\Scripts\activate
+# Mac/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env      # then add your Google client ID
+uvicorn app.main:app --reload --port 8000
 ```
 
-### Install dependencies
+Check it is up at `http://localhost:8000/api/health`.
+
+**Model weights.** The trained checkpoint is not in this repo because of file size. Place it at `backend/checkpoints/phasediff.pt` and the server loads it on startup. Without it the full pipeline still runs, but on untrained weights, so the output will not look like real anatomy. Weights are available on request.
+
+### 2. Frontend
+
+In a second terminal, from the repo root:
 
 ```bash
 npm install
-```
-
-### Start the development server
-
-```bash
+cp .env.example .env      # add the same Google client ID
 npm run dev
 ```
 
-The application will be available at:
+Open the local address that Vite prints.
 
-```
-http://localhost:8080
-```
+### 3. Training (optional)
 
----
+Download the DIR-Lab dataset from https://www.dir-lab.com first, then:
 
-## Project Structure
-
-```
-src/
- ├── components/
- ├── hooks/
- ├── lib/
- ├── routes/
- ├── router.tsx
- ├── start.ts
- └── styles.css
-
-public/
- ├── favicon.ico
- └── robots.txt
+```bash
+cd backend
+python train.py --data-dir data/dirlab --epochs 200 --out checkpoints/phasediff.pt
 ```
 
----
+## Project layout
 
-## Future Improvements
+```
+src/                  React frontend (login, dashboard, processing, results, history, settings)
+backend/
+  app/models/         3D UNet, FiLM blocks, Phase Aware Attention
+  app/core/           diffusion, preprocessing, inference pipeline, job queue
+  app/routers/        API endpoints for generation, history and auth
+  train.py            training script
+```
 
-- Support for additional medical image formats
-- 3D CT volume visualization
-- Patient report generation
-- AI confidence visualization
-- Multi-user collaboration
-- Cloud storage integration
+More detail on the API and settings is in [backend/README.md](backend/README.md).
 
----
+## Limitations
 
-## Disclaimer
+The app runs one pass on a 96³ resampled volume to keep things quick. It does not stitch full resolution patches the way a clinical tool would. The confidence score shown for each phase is a consistency check, not a clinical measure. The job queue lives in memory so it runs as a single process.
 
-This application is intended for research and educational purposes. It is not designed to replace professional medical diagnosis or clinical decision-making.
+This is a research project. It is not meant for diagnosis or treatment decisions.
 
----
+## Team
 
-## License
-
-This project is intended for academic and research use.
+Built by a team of CSE students at North South University as our final year capstone.

@@ -81,9 +81,9 @@ export function AppNav() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56 rounded-xl">
               <div className="px-2 py-1.5">
-                <p className="text-sm font-semibold">{user?.name ?? "Dr. Radiologist"}</p>
+                <p className="text-sm font-semibold">{user?.name ?? "Guest"}</p>
                 <p className="truncate text-xs text-muted-foreground">
-                  {user?.email ?? "radiology@hospital.org"}
+                  {user?.email ?? "Not signed in"}
                 </p>
               </div>
               <DropdownMenuSeparator />

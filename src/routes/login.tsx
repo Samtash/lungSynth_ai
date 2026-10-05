@@ -16,7 +16,7 @@ export const Route = createFileRoute("/login")({
       { title: "Sign in — LungSynth AI" },
       { name: "description", content: "Secure Google sign-in for radiologists and researchers using LungSynth AI 4D CT reconstruction." },
       { property: "og:title", content: "Sign in — LungSynth AI" },
-      { property: "og:description", content: "Hospital-grade secure authentication for the LungSynth AI 4D CT platform." },
+      { property: "og:description", content: "Sign in with Google to use the LungSynth AI 4D CT research demo." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -26,7 +26,7 @@ export const Route = createFileRoute("/login")({
 
 const assurances = [
   { icon: ShieldCheck, label: "Secure Authentication" },
-  { icon: Lock, label: "Hospital-grade privacy" },
+  { icon: Lock, label: "Your data stays local" },
   { icon: MonitorSmartphone, label: "Responsive design" },
 ];
 
