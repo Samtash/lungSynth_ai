@@ -115,3 +115,9 @@ This is a research project. It is not meant for diagnosis or treatment decisions
 ## Team
 
 Built by a team of CSE students at North South University as our final year capstone.
+
+##Demo
+
+https://github.com/user-attachments/assets/201ad84a-7a1b-4b52-b38c-f52bc0b41c65
+
+
