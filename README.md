@@ -4,7 +4,9 @@
 
 Give LungSynth two CT scans of the lungs taken at the two ends of a breath (T00 and T50). It rebuilds the seven breathing phases in between (T10 to T40 and T60 to T80) with a 3D diffusion model. The whole thing runs inside a web app where you sign in, upload scans, watch the job run and download the results.
 
-This was our final year AI capstone project at North South University.
+##Demo
+
+https://github.com/user-attachments/assets/201ad84a-7a1b-4b52-b38c-f52bc0b41c65
 
 ## Why it matters
 
@@ -116,8 +118,6 @@ This is a research project. It is not meant for diagnosis or treatment decisions
 
 Built by a team of CSE students at North South University as our final year capstone.
 
-##Demo
 
-https://github.com/user-attachments/assets/201ad84a-7a1b-4b52-b38c-f52bc0b41c65
 
 
