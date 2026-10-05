@@ -1,6 +1,4 @@
-Here is a rewritten, professional version of your README text tailored for GitHub:
 
----
 
 # LungSynth AI
 
